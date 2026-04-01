@@ -1,0 +1,79 @@
+# Compose Specification Version.
+# Market Standard: Use '3.8' ou omita (latest spec) para compatibilidade moderna com o Docker Engine.
+version: '3.8'
+
+services:
+  # ---------------------------------------------------------------------------
+  # API SERVICE (Flask App via Gunicorn)
+  # ---------------------------------------------------------------------------
+  api:
+    # Build context.
+    # Under the hood: Docker daemon creates a tarball of '.' and executes instructions sequentially, caching UnionFS layers.
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    # Port mapping: "HOST:CONTAINER".
+    # Under the hood: Docker configures Linux iptables (NAT/DNAT) to route host traffic to the container's isolated network namespace.
+    ports:
+      - "5000:5000"
+
+    # Bind Mount for Live Reload.
+    # Under the hood: The host's inode directory is mounted directly into the container's VFS (Virtual File System).
+    # Trade-off: Excellent for dev. NEVER use bind mounts for source code in Production (bake it into the image).
+    volumes:
+      - .:/app
+
+    # Environment Variables.
+    # Under the hood: Injected directly into the process's memory space at boot (accessible via syscall `getenv`).
+    # Trade-off: Hardcoded credentials here are for DEV ONLY. Prod requires Vault or CI/CD secrets injection.
+    environment:
+      - FLASK_APP=app.py
+      - FLASK_ENV=development # Triggers Werkzeug debug mode
+      # Internal DNS resolution: 'db' and 'cache' resolve to container IPs via Docker's embedded DNS server.
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/appdb
+      - REDIS_URL=redis://cache:6379/0
+
+    # Startup order dependency.
+    # Note: This only waits for the container to start, NOT for the process inside (like Postgres) to be ready to accept connections.
+    depends_on:
+      - db
+      - cache
+
+  # ---------------------------------------------------------------------------
+  # DATABASE SERVICE (PostgreSQL)
+  # ---------------------------------------------------------------------------
+  db:
+    # Alpine variant.
+    # Market Standard: Alpine uses musl libc instead of glibc. Drastically reduces image size and CVE attack surface.
+    image: postgres:16-alpine
+
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=appdb
+
+    # Named Volume for Data Persistence.
+    # Under the hood: Bypasses the container's writable OverlayFS layer. Data is written directly to host disk (/var/lib/docker/volumes/), surviving container recreation.
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+    # Local access.
+    # Trade-off: Exposed to the host strictly to allow local GUI tools (like DBeaver or pgAdmin) to connect during development. Remove in prod.
+    ports:
+      - "5432:5432"
+
+  # ---------------------------------------------------------------------------
+  # CACHE SERVICE (Redis)
+  # ---------------------------------------------------------------------------
+  cache:
+    # Ephemeral in-memory datastore for sessions, rate-limiting (flask-limiter), and caching.
+    # Under the hood: Stores keys in RAM. No volume mapped, meaning data is lost if the container stops (acceptable for cache).
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+# Volume Declaration.
+# Required to register 'pgdata' in Docker's volume management subsystem.
+volumes:
+  pgdata:
