@@ -1,79 +1,66 @@
-# Compose Specification Version.
-# Market Standard: Use '3.8' ou omita (latest spec) para compatibilidade moderna com o Docker Engine.
-version: '3.8'
-
+# 'services' is the root keyword that defines all the different containers (pieces of our app) we want to run.
 services:
-  # ---------------------------------------------------------------------------
-  # API SERVICE (Flask App via Gunicorn)
-  # ---------------------------------------------------------------------------
-  api:
-    # Build context.
-    # Under the hood: Docker daemon creates a tarball of '.' and executes instructions sequentially, caching UnionFS layers.
-    build:
-      context: .
-      dockerfile: Dockerfile
 
-    # Port mapping: "HOST:CONTAINER".
-    # Under the hood: Docker configures Linux iptables (NAT/DNAT) to route host traffic to the container's isolated network namespace.
-    ports:
-      - "5000:5000"
-
-    # Bind Mount for Live Reload.
-    # Under the hood: The host's inode directory is mounted directly into the container's VFS (Virtual File System).
-    # Trade-off: Excellent for dev. NEVER use bind mounts for source code in Production (bake it into the image).
-    volumes:
-      - .:/app
-
-    # Environment Variables.
-    # Under the hood: Injected directly into the process's memory space at boot (accessible via syscall `getenv`).
-    # Trade-off: Hardcoded credentials here are for DEV ONLY. Prod requires Vault or CI/CD secrets injection.
-    environment:
-      - FLASK_APP=app.py
-      - FLASK_ENV=development # Triggers Werkzeug debug mode
-      # Internal DNS resolution: 'db' and 'cache' resolve to container IPs via Docker's embedded DNS server.
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/appdb
-      - REDIS_URL=redis://cache:6379/0
-
-    # Startup order dependency.
-    # Note: This only waits for the container to start, NOT for the process inside (like Postgres) to be ready to accept connections.
-    depends_on:
-      - db
-      - cache
-
-  # ---------------------------------------------------------------------------
-  # DATABASE SERVICE (PostgreSQL)
-  # ---------------------------------------------------------------------------
-  db:
-    # Alpine variant.
-    # Market Standard: Alpine uses musl libc instead of glibc. Drastically reduces image size and CVE attack surface.
+  # 'postgres' is just the name we chose for this specific service. It acts as an identifier inside this file.
+  postgres:
+    # 'image' tells Docker which pre-built template to download from Docker Hub.
+    # 'postgres' is the software, '16' is the version, and 'alpine' means it uses a tiny, lightweight Linux OS.
     image: postgres:16-alpine
 
+    # 'container_name' forces Docker to use this exact name instead of generating a random one like 'project-postgres-1'.
+    container_name: linklens_postgres
+
+    # 'environment' lets us pass hidden variables (configuration) inside the container when it starts.
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=appdb
+      # Sets the default superuser name for the database.
+      POSTGRES_USER: ${DB_USER}
+      # Sets the password for that superuser. (Note: Hardcoding passwords here is bad practice for production!)
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      # Tells Postgres to automatically create a database named 'linklens' when it starts for the first time.
+      POSTGRES_DB: linklens
 
-    # Named Volume for Data Persistence.
-    # Under the hood: Bypasses the container's writable OverlayFS layer. Data is written directly to host disk (/var/lib/docker/volumes/), surviving container recreation.
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-
-    # Local access.
-    # Trade-off: Exposed to the host strictly to allow local GUI tools (like DBeaver or pgAdmin) to connect during development. Remove in prod.
+    # 'ports' creates a tunnel between your physical computer (host) and the isolated container.
     ports:
+      # "HOST_PORT:CONTAINER_PORT". This means traffic hitting your PC on 5432 goes to the container's internal 5432 port.
       - "5432:5432"
 
-  # ---------------------------------------------------------------------------
-  # CACHE SERVICE (Redis)
-  # ---------------------------------------------------------------------------
-  cache:
-    # Ephemeral in-memory datastore for sessions, rate-limiting (flask-limiter), and caching.
-    # Under the hood: Stores keys in RAM. No volume mapped, meaning data is lost if the container stops (acceptable for cache).
+    # 'volumes' handles data storage. Containers are temporary; without volumes, your data is destroyed when the container stops.
+    volumes:
+      # "VOLUME_NAME:CONTAINER_PATH". We are linking a safe, permanent storage area ('pgdata') to the folder where Postgres saves its data.
+      - pgdata:/var/lib/postgresql/data
+
+    # 'healthcheck' tells Docker how to verify if the service is actually ready to accept connections, not just turned on.
+    healthcheck:
+      # 'test' is the command Docker runs inside the container to check its status. 'pg_isready' is a Postgres tool for this.
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      # 'interval' means Docker will wait 5 seconds between each check.
+      interval: 5s
+      # 'timeout' means if the check takes longer than 5 seconds to respond, it's considered a failure.
+      timeout: 5s
+      # 'retries' means Docker will try 5 times before officially marking the container as "unhealthy".
+      retries: 5
+
+  # 'redis' is the name of our second service, usually used for caching or temporary fast data.
+  redis:
+    # We are using Redis version 7, also built on the lightweight 'alpine' Linux distribution.
     image: redis:7-alpine
+
+    # Naming the container so it's easy to spot when we run 'docker ps' in the terminal.
+    container_name: linklens_redis
+
+    # Opening port 6379, which is the universal standard port Redis uses to communicate.
     ports:
       - "6379:6379"
 
-# Volume Declaration.
-# Required to register 'pgdata' in Docker's volume management subsystem.
+    # Healthcheck to ensure Redis is awake and ready to receive commands.
+    healthcheck:
+      # 'redis-cli ping' asks Redis "are you there?". If it is running properly, it replies with "PONG".
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+# This bottom 'volumes' section is mandatory to declare any named volumes we used up in the services section.
 volumes:
+  # 'pgdata' is declared here so Docker knows to create and manage a permanent storage space with this name on your host machine.
   pgdata:
