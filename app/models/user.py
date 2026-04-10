@@ -14,7 +14,6 @@ class User(db.Model):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
         )
-
     email: Mapped[str] = mapped_column(
         String(255), unique=True, nullable=False, index=True)
 
@@ -37,7 +36,7 @@ class User(db.Model):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
         )
-    # Relationship — "ShortURL"  string porque a classe ainda não foi definida
+    # Relationship — "ShortURL"  string because class in not yet defined 
     urls: Mapped[list["ShortURL"]] = relationship(
         "ShortURL",
         back_populates="owner",
