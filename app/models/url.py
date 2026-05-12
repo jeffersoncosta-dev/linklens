@@ -27,8 +27,7 @@ class ShortURL(db.Model):
     title: Mapped[str] = mapped_column(String(255), nullable=True)
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        db.ForeignKey("users.id"),
-        ondelete="CASCADE",
+        db.ForeignKey("users.id", ondelete="CASCADE"),
         index=True
         )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
