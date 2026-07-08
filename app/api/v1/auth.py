@@ -1,7 +1,7 @@
 from flask import Blueprint, request
 from app.extensions import db, limiter, redis_conn
 from app.models import User
-from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt
+from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt, jwt_required
 from datetime import datetime, timezone
 
 auth_bp = Blueprint("auth", __name__)
@@ -70,3 +70,17 @@ def me():
     identity = get_jwt_identity()
     user = db.session.get(User, identity)
     return user.to_dict(), 200
+
+
+@auth_bp.route("/api-key", methods=["POST"])
+@jwt_required()
+def api_key():
+    identity = get_jwt_identity()
+    user = db.session.get(User, identity)
+    user.rotate_api_key()
+    db.session.commit()
+
+    return {
+        "api_key": user.api_key,
+        "message": "Store it safely- shown only once."
+    }, 200
