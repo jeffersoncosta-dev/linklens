@@ -56,7 +56,7 @@ def refresh():
 @auth_bp.route("/logout", methods=["DELETE"])
 @jwt_required()
 def logout():
-    token_date = get_jwt()
+    token_data = get_jwt()
     jti = token_data["jti"]
     exp = token_data["exp"]
     now = int(datetime.now(timezone.utc).timestamp())
