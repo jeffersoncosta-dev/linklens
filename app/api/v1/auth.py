@@ -1,18 +1,25 @@
 from flask import Blueprint, request
 from app.extensions import db, limiter, redis_conn
 from app.models import User
-from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt, jwt_required
+from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt, jwt_required, get_jwt_identity
 from datetime import datetime, timezone
 
 auth_bp = Blueprint("auth", __name__)
 
- 
-
-
-
 @auth_bp.route("/register", methods=["POST"])
 @limiter.limit("10 per hour")
 def register():
+    """Registers a new user in the system.
+
+    Expected JSON Payload:
+        email (str): The user's email address (Required).
+        password (str): The user's password, minimum 8 characters (Required).
+
+    Returns:
+        tuple: (dict containing success message and user data, 201) on success.
+        tuple: (dict containing error message, 422) if validation fails.
+        tuple: (dict containing error message, 409) if email is already registered.
+    """
     data = request.get_json(silent=True) or {}
     email = data.get("email", "").strip().lower()
     password = data.get("password", "")
@@ -30,6 +37,16 @@ def register():
 @auth_bp.route("/login", methods=["POST"])
 @limiter.limit("20 per hour")
 def login():
+    """Authenticates a user and issues JWT tokens.
+
+    Expected JSON Payload:
+        email (str): The user's registered email (Required).
+        password (str): The user's password (Required).
+
+    Returns:
+        tuple: (dict containing access_token, refresh_token, and user data, 200) on success.
+        tuple: (dict containing error message, 401) if credentials are invalid.
+    """
     data = request.get_json(silent=True) or {}
     email = data.get("email", "").strip().lower()
     password = data.get("password", "")
@@ -49,6 +66,11 @@ def login():
 @auth_bp.route("/refresh", methods=["POST"])
 @jwt_required(refresh=True)
 def refresh():
+    """Generates a new access token using a valid refresh token.
+
+    Returns:
+        tuple: (dict containing the new access_token, 200) on success.
+    """
     identity = get_jwt_identity()
     access_token = create_access_token(identity=identity)
     return {"access_token": access_token}, 200 
@@ -56,6 +78,11 @@ def refresh():
 @auth_bp.route("/logout", methods=["DELETE"])
 @jwt_required()
 def logout():
+    """Logs out the current user by blacklisting their access token in Redis.
+
+    Returns:
+        tuple: (dict containing success message, 200) on success.
+    """
     token_data = get_jwt()
     jti = token_data["jti"]
     exp = token_data["exp"]
@@ -67,6 +94,11 @@ def logout():
 @auth_bp.route("/me", methods=["GET"])
 @jwt_required()
 def me():
+    """Retrieves the profile information of the authenticated user.
+
+    Returns:
+        tuple: (dict containing the user data, 200) on success.
+    """
     identity = get_jwt_identity()
     user = db.session.get(User, identity)
     return user.to_dict(), 200
@@ -75,6 +107,11 @@ def me():
 @auth_bp.route("/api-key", methods=["POST"])
 @jwt_required()
 def api_key():
+    """Rotates and returns a new API key for the authenticated user.
+
+    Returns:
+        tuple: (dict containing the new api_key and a security warning, 200) on success.
+    """
     identity = get_jwt_identity()
     user = db.session.get(User, identity)
     user.rotate_api_key()
