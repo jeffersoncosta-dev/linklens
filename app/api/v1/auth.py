@@ -1,4 +1,5 @@
 from flask import Blueprint, request
+from sqlalchemy.exc import SQLAlchemyError
 from app.extensions import db, limiter, redis_conn
 from app.models import User
 from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt, jwt_required, get_jwt_identity
@@ -115,9 +116,14 @@ def api_key():
     identity = get_jwt_identity()
     user = db.session.get(User, identity)
     user.rotate_api_key()
-    db.session.commit()
-
-    return {
+    try:
+        db.session.commit()
+        return {
         "api_key": user.api_key,
         "message": "Store it safely- shown only once."
     }, 200
+
+    except SQLAlchemyError:
+        db.session.rollback()
+        return {"error": "internal_server_error", "message": "Failed to rotate api key."}, 500
+

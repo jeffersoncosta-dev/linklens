@@ -1,32 +1,37 @@
-import secrets
-import string
 from flask import Blueprint, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from sqlalchemy.exc import SQLAlchemyError
 from app.extensions import db
 from app.models import ShortURL
-
+from app.core.shortener import generate_slug, validate_url, validate_custom_slug
 
 urls_bp = Blueprint("urls", __name__)
 
 @urls_bp.route("/", methods=["POST"])
 @jwt_required()
 def create_url():
-    """ Creates a new shortened associated with authenticated user.
+    """ Creates a new shortened URL associated with authenticated user.
     Expected JSON Payload:
         original_url(str): The destination URL to be shortened (Required)
         title (str, optional): A descriptive title for the link.
 
     Returns:
-        tuple: (dict containing the Short_URL data, 201) on sucess.
-        tuple: (dict containing validation error message, 433) if original_url is missing.
+        tuple: (dict containing the Short_URL data, 201) on success.
+        tuple: (dict containing validation error message, 422) if original_url is missing.
     """
     data = request.get_json(silent=True) or {}
     original_url = data.get("original_url")
-    if not original_url:
-        return {"error": "validation_error", "message": "Url required."}, 422
+    if not original_url or not validate_url(original_url):
+        return {"error": "validation_error", "message": "Invalid URL."}, 422
     title = data.get("title")
-    alphabet = string.ascii_letters + string.digits
-    slug = "".join(secrets.choice(alphabet) for _ in range(7))
+    custom_slug = data.get("slug")
+    if custom_slug: 
+        is_valid, error = validate_custom_slug(custom_slug)
+        if not is_valid:
+            return {"error": "validation_error", "message": error}, 422
+        slug = custom_slug
+    else:
+        slug = generate_slug()
     identity = get_jwt_identity()
     new_url = ShortURL(
         slug=slug,
@@ -35,10 +40,13 @@ def create_url():
         user_id=identity
     )
     db.session.add(new_url)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        return {"error": "internal_server_error", "message": "Failed to save URL."}, 500
 
     return new_url.to_dict(), 201
-
 @urls_bp.route("/", methods=["GET"])
 @jwt_required()
 def list_urls():
@@ -87,11 +95,20 @@ def update_url(slug):
     url = ShortURL.query.filter_by(slug=slug, user_id=user_id).first_or_404()
     updated_data = request.get_json(silent=True) or {}
     if "original_url" in updated_data:
-        url.original_url = updated_data.get("original_url")
+        updated_url = updated_data.get("original_url")
+        if not updated_url or not validate_url(updated_url):
+            return {"error": "validation_error", "message": "Invalid URL."}, 422
+        url.original_url = updated_url
     if "title" in updated_data:
         url.title = updated_data.get("title")
-    db.session.commit()
-    return url.to_dict(), 200
+    
+    try:
+        db.session.commit()
+        return url.to_dict(), 200
+    except SQLAlchemyError:
+        db.session.rollback()
+        return {"error": "internal_server_error", "message": "Failed to update URL."}, 500
+
 
 @urls_bp.route("/<slug>", methods=["DELETE"])
 @jwt_required()
@@ -109,9 +126,20 @@ def delete_url(slug):
     user_id = get_jwt_identity()
     url = ShortURL.query.filter_by(slug=slug, user_id=user_id).first_or_404()
 
-    if url.is_active:
-        url.is_active = False
+    if not url.is_active:
+        return {"error": "already_inactive", "message": "Url already inactive."}, 409
+    url.is_active = False
+    try:
         db.session.commit()
         return "", 204
+    except SQLAlchemyError:
+        db.session.rollback()
+        return {"error": "internal_server_error", "message": "Failed to delete URL."}, 500
+
+
     
-    return {"error": "already_inactive", "message": "Url already inactive."}, 409
+
+
+
+
+
