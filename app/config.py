@@ -1,13 +1,17 @@
 import os
 from dotenv import load_dotenv
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 load_dotenv()
 
 class Config:
     """Flask configuration variables."""
     SECRET_KEY = os.environ.get('SECRET_KEY')
+    if not SECRET_KEY:
+        raise RuntimeError("SECRET_KEY environment variable is not set.")
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL')
+    if not SQLALCHEMY_DATABASE_URI:
+        raise RuntimeError("SQLALCHEMY_DATABASE_URI environment variable is not set.")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     REDIS_URL = os.environ.get('REDIS_URL')
     JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY')

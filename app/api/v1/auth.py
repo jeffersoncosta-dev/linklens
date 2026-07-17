@@ -1,3 +1,4 @@
+import uuid
 from flask import Blueprint, request
 from sqlalchemy.exc import SQLAlchemyError
 from app.extensions import db, limiter, redis_conn
@@ -24,7 +25,7 @@ def register():
     data = request.get_json(silent=True) or {}
     email = data.get("email", "").strip().lower()
     password = data.get("password", "")
-    if not email or not password or len(password) < 8:
+    if not email or not password or len(password) < 8 or len(password) > 128:
         return {"error": "validation_error", "message": "Email and password are required."}, 422
         
     if User.query.filter_by(email=email).first():
@@ -100,8 +101,8 @@ def me():
     Returns:
         tuple: (dict containing the user data, 200) on success.
     """
-    identity = get_jwt_identity()
-    user = db.session.get(User, identity)
+    user_id = uuid.UUID(get_jwt_identity())
+    user = db.session.get(User, user_id)
     return user.to_dict(), 200
 
 
@@ -113,8 +114,8 @@ def api_key():
     Returns:
         tuple: (dict containing the new api_key and a security warning, 200) on success.
     """
-    identity = get_jwt_identity()
-    user = db.session.get(User, identity)
+    user_id = uuid.UUID(get_jwt_identity)
+    user = db.session.get(User, user_id)
     user.rotate_api_key()
     try:
         db.session.commit()

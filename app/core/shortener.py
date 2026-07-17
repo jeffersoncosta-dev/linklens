@@ -30,7 +30,7 @@ def validate_custom_slug(slug) -> tuple[bool, str]:
     if slug in RESERVED_SLUGS:
         return (False, "This slug is reserved.")
     if not re.match(r"^[a-zA-Z0-9_-]{3,64}$", slug):
-        return (False, "Slug must be 3-64 chars...")
+        return (False, "Slug must be 3-64 characters (letters, numbers, hyphens, underscores).")
     if ShortURL.query.filter_by(slug=slug).first(): 
         return (False, "Slug already taken.")
     return (True, "")

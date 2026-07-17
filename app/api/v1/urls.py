@@ -1,9 +1,10 @@
+import uuid
 from flask import Blueprint, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from app.extensions import db
 from app.models import ShortURL
-from app.core.shortener import generate_slug, validate_url, validate_custom_slug
+from app.core.shortener import generate_slug, validate_url, validate_custom_slug, cache_redirect, invalidate_cache
 
 urls_bp = Blueprint("urls", __name__)
 
@@ -32,20 +33,25 @@ def create_url():
         slug = custom_slug
     else:
         slug = generate_slug()
-    identity = get_jwt_identity()
+    user_id = uuid.UUID(get_jwt_identity())
     new_url = ShortURL(
         slug=slug,
         original_url=original_url,
         title=title,
-        user_id=identity
+        user_id=user_id 
     )
     db.session.add(new_url)
     try:
         db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return {"error": "conflict", "message": "Slug collision, try again."}, 409  
+
     except SQLAlchemyError:
         db.session.rollback()
         return {"error": "internal_server_error", "message": "Failed to save URL."}, 500
-
+    
+    cache_redirect(slug, original_url)
     return new_url.to_dict(), 201
 @urls_bp.route("/", methods=["GET"])
 @jwt_required()
@@ -54,8 +60,8 @@ def list_urls():
     Returns: 
         tuple: (list of dicts containing the ShortURL data, 200) on success.
     """
-    identity = get_jwt_identity()
-    urls = ShortURL.query.filter_by(user_id=identity, is_active=True).all()
+    user_id = uuid.UUID(get_jwt_identity())
+    urls = ShortURL.query.filter_by(user_id=user_id, is_active=True).all()
     
     return [url.to_dict() for url in urls], 200 
 
@@ -71,7 +77,7 @@ def get_url(slug):
     Returns:
         tuple: (dict containing ShortURL data, 200)  on success.
     """
-    user_id = get_jwt_identity()
+    user_id = uuid.UUID(get_jwt_identity())
     url = ShortURL.query.filter_by(slug=slug, user_id=user_id).first_or_404()
 
     return url.to_dict(), 200
@@ -91,7 +97,7 @@ def update_url(slug):
     Returns:
         tuple: (dict containing ShortURL data, 200)  on success.    
     """
-    user_id = get_jwt_identity()
+    user_id = uuid.UUID(get_jwt_identity())
     url = ShortURL.query.filter_by(slug=slug, user_id=user_id).first_or_404()
     updated_data = request.get_json(silent=True) or {}
     if "original_url" in updated_data:
@@ -104,6 +110,7 @@ def update_url(slug):
     
     try:
         db.session.commit()
+        invalidate_cache(slug)
         return url.to_dict(), 200
     except SQLAlchemyError:
         db.session.rollback()
@@ -123,7 +130,7 @@ def delete_url(slug):
         tuple: (dict containing error message, 409) if the URL is already inactive.  
 
     """
-    user_id = get_jwt_identity()
+    user_id = uuid.UUID(get_jwt_identity())
     url = ShortURL.query.filter_by(slug=slug, user_id=user_id).first_or_404()
 
     if not url.is_active:
@@ -131,6 +138,7 @@ def delete_url(slug):
     url.is_active = False
     try:
         db.session.commit()
+        invalidate_cache(slug)
         return "", 204
     except SQLAlchemyError:
         db.session.rollback()

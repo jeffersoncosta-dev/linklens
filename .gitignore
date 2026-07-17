@@ -352,3 +352,4 @@ __pycache__/
 *.pyc
 .pytest_cache/
 instance/
+linklens.md

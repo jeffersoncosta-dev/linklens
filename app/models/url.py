@@ -1,10 +1,8 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, Boolean, DateTime, Integer
+from sqlalchemy import String, Boolean, DateTime, Integer, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from werkzeug.security import generate_password_hash, check_password_hash
-
 from app.extensions import db
 
 class ShortURL(db.Model):
@@ -23,7 +21,7 @@ class ShortURL(db.Model):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     slug: Mapped[str] = mapped_column(
         String(64), unique=True, index=True)
-    original_url: Mapped[str] = mapped_column(String)
+    original_url: Mapped[str] = mapped_column(Text)
     title: Mapped[str] = mapped_column(String(255), nullable=True)
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

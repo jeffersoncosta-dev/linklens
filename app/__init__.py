@@ -2,6 +2,7 @@ from flask import Flask
 from app.config import config
 from app.extensions import db, limiter, migrate, jwt, redis_conn, init_redis
 from app.api.v1 import api_v1_bp
+from app.public.routes import public_bp
 
 @jwt.token_in_blocklist_loader
 def check_if_token_revoked(jwt_header, jwt_payload):
@@ -36,6 +37,10 @@ def create_app(config_name="default"):
 
     # Register routes
     app.register_blueprint(api_v1_bp, url_prefix="/api/v1")
+    app.register_blueprint(public_bp)
+    app.register_blueprint(redirects_bp)
+    app.register_blueprint(urls_bp)
+    app.register_blueprint(auth_bp)
 
     # Import models in app context 
     with app.app_context():

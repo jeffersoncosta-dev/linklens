@@ -20,15 +20,14 @@ class Click(db.Model):
             db.Index("ix_clicks_url_time", "url_id", "clicked_at"),
             db.Index("ix_clicks_url_country", "url_id", "country"),
         )
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     url_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         db.ForeignKey("short_urls.id", ondelete="CASCADE"), index=True
         )
         
     ip_hash: Mapped[str] = mapped_column(String(64), index=True)
-    is_unique: Mapped[bool] = mapped_column(Boolean, default=True)
-
+    is_unique: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # Analytcs fields are nullable because clients or privacy tools might not provide headers like referer or user_agent
     referer: Mapped[str] = mapped_column(String(500), nullable=True)
     user_agent_raw: Mapped[str] = mapped_column(String(500), nullable=True)
@@ -36,7 +35,7 @@ class Click(db.Model):
     os: Mapped[str] = mapped_column(String(50), nullable=True)
     device_type: Mapped[str] = mapped_column(String(50), nullable=True)
     
-    # Geo fields are nullable because IṔ resolution might fail 
+    # Geo fields are nullable because IP resolution might fail 
     country: Mapped[str] = mapped_column(String(100), nullable=True)
     region: Mapped[str] = mapped_column(String(100), nullable=True)
     city: Mapped[str] = mapped_column(String(100), nullable=True)
