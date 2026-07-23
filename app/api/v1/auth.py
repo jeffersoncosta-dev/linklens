@@ -114,7 +114,7 @@ def api_key():
     Returns:
         tuple: (dict containing the new api_key and a security warning, 200) on success.
     """
-    user_id = uuid.UUID(get_jwt_identity)
+    user_id = uuid.UUID(get_jwt_identity())
     user = db.session.get(User, user_id)
     user.rotate_api_key()
     try:

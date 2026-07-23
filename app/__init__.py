@@ -1,8 +1,13 @@
 from flask import Flask
 from app.config import config
-from app.extensions import db, limiter, migrate, jwt, redis_conn, init_redis
+from app import extensions
+from app.extensions import db, limiter, migrate, jwt, init_redis
 from app.api.v1 import api_v1_bp
-from app.public.routes import public_bp
+from app.api.v1.urls import urls_bp
+from app.api.v1.auth import auth_bp
+from app.redirects import redirects_bp
+# from app.public.routes import public_bp
+from app.core.tracker import start_click_worker
 
 @jwt.token_in_blocklist_loader
 def check_if_token_revoked(jwt_header, jwt_payload):
@@ -18,7 +23,7 @@ def check_if_token_revoked(jwt_header, jwt_payload):
         bool: True if the token is in the blocklist (revoked), False otherwise.
     """
     jti = jwt_payload["jti"]
-    return redis_conn.get(f"bl:{jti}") is not None
+    return extensions.redis_conn.get(f"bl:{jti}") is not None
 
 
 def create_app(config_name="default"):
@@ -37,10 +42,12 @@ def create_app(config_name="default"):
 
     # Register routes
     app.register_blueprint(api_v1_bp, url_prefix="/api/v1")
-    app.register_blueprint(public_bp)
-    app.register_blueprint(redirects_bp)
+    # app.register_blueprint(public_bp)
     app.register_blueprint(urls_bp)
     app.register_blueprint(auth_bp)
+    app.register_blueprint(redirects_bp)
+    
+    start_click_worker(app)
 
     # Import models in app context 
     with app.app_context():

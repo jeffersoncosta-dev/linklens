@@ -3,7 +3,7 @@ import secrets
 import string
 from urllib.parse import urlparse
 from app.models import ShortURL
-from app.extensions import redis_conn
+from app import extensions
 
 # Globals
 ALPHABET = string.ascii_letters + string.digits
@@ -36,12 +36,12 @@ def validate_custom_slug(slug) -> tuple[bool, str]:
     return (True, "")
 
 def cache_redirect (slug, url, ttl=300):
-    return redis_conn.setex(f"redirect:{slug}", ttl, url)
+    return extensions.redis_conn.setex(f"redirect:{slug}", ttl, url)
 
 def get_cached_redirect(slug):
-    return redis_conn.get(f"redirect:{slug}")
+    return extensions.redis_conn.get(f"redirect:{slug}")
 
 def invalidate_cache(slug):
-    return redis_conn.delete(f"redirect:{slug}")
+    return extensions.redis_conn.delete(f"redirect:{slug}")
 
      
