@@ -2,6 +2,7 @@ from flask import Blueprint, redirect, request, jsonify
 from app.models import ShortURL
 from app.core.shortener import get_cached_redirect, cache_redirect
 from app.core.tracker import enqueue_click
+import logging
 
 redirects_bp = Blueprint("redirects", __name__)
 
@@ -32,5 +33,5 @@ def _track(slug, url_id=None):
             url_id = url.id
         enqueue_click(url_id=url_id, ip=request.remote_addr, user_agent=request.user_agent.string, referer=request.referrer)
 
-    except Exception:
-        pass
+    except Exception as e:
+        logging.error("Failed to enqueue click tracking for url_id=%s: %s", url_id, e, exc_info=True)

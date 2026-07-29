@@ -75,15 +75,17 @@ class ShortURL(db.Model):
         Serializes the ShortURL instance into a dictionary for JSON responses.
 
         Args:
-        base_url (str): The base aplication URL to contruct the full short_url.
+            base_url (str): The base application URL (e.g., request.host_url).
         Returns:
-            dict: The serialized URL data including HATEOAS links. 
+            dict: The serialized URL data including absolute HATEOAS links. 
         """
+        clean_base = base_url.rstrip('/')
+        
         return {
             "id": str(self.id),
             "slug": self.slug,
             "original_url": self.original_url,
-            "short_url": f"{base_url.rstrip('/')}/{self.slug}",
+            "short_url": f"{clean_base}/{self.slug}",
             "title": self.title,
             "is_active": self.is_active,
             "click_count": self.click_count,
@@ -92,9 +94,9 @@ class ShortURL(db.Model):
             "created_at": self.created_at.isoformat(),
             "is_expired": self.is_expired,
             "links": {
-                "self": f"/api/v1/urls/{self.slug}",
-                "analytics": f"/api/v1/urls/{self.slug}/analytics",
-                "qr": f"/api/v1/urls/{self.slug}/qr"
+                "self": f"{clean_base}/api/v1/urls/{self.slug}",
+                "analytics": f"{clean_base}/api/v1/urls/{self.slug}/analytics",
+                "qr": f"{clean_base}/api/v1/urls/{self.slug}/qr"
             }
         }
 

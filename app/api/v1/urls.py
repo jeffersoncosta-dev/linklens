@@ -1,5 +1,5 @@
 import uuid
-from flask import Blueprint, request
+from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from app.extensions import db
@@ -52,7 +52,8 @@ def create_url():
         return {"error": "internal_server_error", "message": "Failed to save URL."}, 500
     
     cache_redirect(slug, original_url)
-    return new_url.to_dict(), 201
+    return jsonify(new_url.to_dict(base_url=request.host_url)), 201
+
 @urls_bp.route("/", methods=["GET"])
 @jwt_required()
 def list_urls():

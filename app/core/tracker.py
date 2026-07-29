@@ -28,18 +28,19 @@ def process_click_queue(app):
         app (Flask): Main application instance.
     """
     
-    with app.app_context():
-        while True:
-            try:
+
+    while True:
+        try:
+            with app.app_context():
                 raw = extensions.redis_conn.blpop(CLICK_QUEUE, timeout=5)
                 if not raw:
                     continue
                 _, payload = raw
                 event = json.loads(payload)
                 _persist_click(event)
-            except Exception as exc:
-                logger.error(f"Error persisting click:{exc}")
-                time.sleep(5)
+        except Exception as exc:
+            logger.error(f"Error persisting click:{exc}")
+            time.sleep(5)
 
 def start_click_worker(app):
     """Starts the click consumer process in a daemon thread.
@@ -94,7 +95,7 @@ def enqueue_click(url_id, ip, user_agent, referer):
     """
 
     event = {
-        "url_id": url_id,
+        "url_id": str(url_id),
         "ip_hash": _hash_ip(ip),
         "ip": ip,
         "user_agent": user_agent,
@@ -136,9 +137,10 @@ def _persist_click(event):
     )
     try:
         db.session.add(click)
-        ShortURL.query.filter_by(id=event["url_id"]).update({"click_count": ShortURL.click_count + 1})
+        url.click_count += 1
         db.session.commit()
-    except SQLAlchemyError:
+    except SQLAlchemyError as e:
+        logger.error(f"Database error while persisting click event for URL{event.get('url_id')}: {e}")
         db.session.rollback()
 
 

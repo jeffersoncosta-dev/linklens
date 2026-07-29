@@ -1,5 +1,6 @@
 import secrets
 import uuid
+from flask import url_for
 from datetime import datetime, timezone
 from sqlalchemy import String, Boolean, DateTime
 from sqlalchemy.dialects.postgresql import UUID
@@ -90,13 +91,13 @@ class User(db.Model):
         Returns:
             dict: The user's public profile data and hypermedia links.
         """
-        return{
-            "id": str(self.id),
-            "email": self.email,
-            "created_at": self.created_at.isoformat(),
-            "links": {
-                "self": "/api/v1/auth/me",
-                "urls": "/api/v1/urls",
+        return {
+        "id": str(self.id),
+        "email": self.email,
+        "created_at": self.created_at.isoformat(),
+        "links": {
+            "self": url_for("auth.me", _external=True),
+            "urls": url_for("urls.list_urls", _external=True),
             },
         }
     def __repr__(self) -> str:

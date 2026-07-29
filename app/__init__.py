@@ -43,9 +43,10 @@ def create_app(config_name="default"):
     # Register routes
     app.register_blueprint(api_v1_bp, url_prefix="/api/v1")
     # app.register_blueprint(public_bp)
-    app.register_blueprint(urls_bp)
-    app.register_blueprint(auth_bp)
+    app.register_blueprint(urls_bp, url_prefix="/api/v1/urls")
+    app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
     app.register_blueprint(redirects_bp)
+    app.register_blueprint(analytics_bp, url_prefix="/api/v1/analytics")
     
     start_click_worker(app)
 

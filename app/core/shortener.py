@@ -1,4 +1,5 @@
 import re
+import logging
 import secrets
 import string
 from urllib.parse import urlparse
@@ -24,7 +25,7 @@ def generate_slug(length=7):
 def validate_url(url):
     parsed = urlparse(url)
     
-    return  parsed.scheme in ("http", "https") and bool(parsed.netloc)
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
 
 def validate_custom_slug(slug) -> tuple[bool, str]:
     if slug in RESERVED_SLUGS:
@@ -36,10 +37,17 @@ def validate_custom_slug(slug) -> tuple[bool, str]:
     return (True, "")
 
 def cache_redirect (slug, url, ttl=300):
-    return extensions.redis_conn.setex(f"redirect:{slug}", ttl, url)
-
+    try:
+        return extensions.redis_conn.setex(f"redirect:{slug}", ttl, url)
+    except Exception as e:
+        logging.error("Failed to fetch cache for slug=%s: %s", slug, e, exc_info=True)
+        return False
 def get_cached_redirect(slug):
-    return extensions.redis_conn.get(f"redirect:{slug}")
+    try:
+        return extensions.redis_conn.get(f"redirect:{slug}")
+    except Exception as e:
+        logging.error("Failed to fetch cache for slug=%s: %s", slug, e, exc_info=True)
+        return None
 
 def invalidate_cache(slug):
     return extensions.redis_conn.delete(f"redirect:{slug}")
