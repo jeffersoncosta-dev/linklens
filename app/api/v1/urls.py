@@ -1,154 +1,149 @@
 import uuid
-from flask import Blueprint, request, jsonify
+import string
+import random
+from flask import request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from sqlalchemy.exc import SQLAlchemyError, IntegrityError
-from app.extensions import db
+from sqlalchemy.exc import SQLAlchemyError
+from app.extensions import db, redis_conn, limiter
 from app.models import ShortURL
-from app.core.shortener import generate_slug, validate_url, validate_custom_slug, cache_redirect, invalidate_cache
+from app.api.v1 import api_v1_bp
 
-urls_bp = Blueprint("urls", __name__)
+def generate_custom_slug(length=6):
+    """Generates a random alphanumeric slug as fallback."""
+    chars = string.ascii_letters + string.digits
+    return ''.join(random.choices(chars, k=length))
 
-@urls_bp.route("/", methods=["POST"])
+@api_v1_bp.route("/urls", methods=["POST"])
 @jwt_required()
+@limiter.limit("30 per minute")
 def create_url():
-    """ Creates a new shortened URL associated with authenticated user.
+    """Creates a new shortened URL for the authenticated user.
+
     Expected JSON Payload:
-        original_url(str): The destination URL to be shortened (Required)
-        title (str, optional): A descriptive title for the link.
+        original_url (str): The target URL (Required).
+        slug (str): A custom alias (Optional).
+        title (str): An optional title for the URL.
 
     Returns:
-        tuple: (dict containing the Short_URL data, 201) on success.
-        tuple: (dict containing validation error message, 422) if original_url is missing.
+        tuple: (dict containing url data, 201) on success.
+        tuple: (dict containing error message, 400/409) on failure.
     """
-    data = request.get_json(silent=True) or {}
-    original_url = data.get("original_url")
-    if not original_url or not validate_url(original_url):
-        return {"error": "validation_error", "message": "Invalid URL."}, 422
-    title = data.get("title")
-    custom_slug = data.get("slug")
-    if custom_slug: 
-        is_valid, error = validate_custom_slug(custom_slug)
-        if not is_valid:
-            return {"error": "validation_error", "message": error}, 422
-        slug = custom_slug
-    else:
-        slug = generate_slug()
     user_id = uuid.UUID(get_jwt_identity())
-    new_url = ShortURL(
-        slug=slug,
-        original_url=original_url,
-        title=title,
-        user_id=user_id 
-    )
-    db.session.add(new_url)
-    try:
-        db.session.commit()
-    except IntegrityError:
-        db.session.rollback()
-        return {"error": "conflict", "message": "Slug collision, try again."}, 409  
-
-    except SQLAlchemyError:
-        db.session.rollback()
-        return {"error": "internal_server_error", "message": "Failed to save URL."}, 500
+    data = request.get_json(silent=True) or {}
     
-    cache_redirect(slug, original_url)
-    return jsonify(new_url.to_dict(base_url=request.host_url)), 201
+    original_url = data.get("original_url")
+    if not original_url:
+        return jsonify({"error": "validation_error", "message": "original_url is required."}), 400
 
-@urls_bp.route("/", methods=["GET"])
+    custom_slug = data.get("slug")
+    slug = custom_slug.strip() if custom_slug else generate_custom_slug()
+
+    if ShortURL.query.filter_by(slug=slug).first():
+        return jsonify({"error": "conflict", "message": "Slug already in use."}), 409
+
+    new_url = ShortURL(
+        original_url=original_url,
+        slug=slug,
+        title=data.get("title", ""),
+        user_id=user_id
+    )
+    
+    try:
+        db.session.add(new_url)
+        db.session.commit()
+        return jsonify(new_url.to_dict()), 201
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        return jsonify({"error": "internal_server_error", "message": "Database error during creation."}), 500
+
+@api_v1_bp.route("/urls", methods=["GET"])
 @jwt_required()
 def list_urls():
-    """Lists active URLs associated with authenticated user.
-    Returns: 
-        tuple: (list of dicts containing the ShortURL data, 200) on success.
+    """Retrieves all shortened URLs created by the authenticated user.
+
+    Returns:
+        tuple: (list of dicts containing urls data, 200) on success.
     """
     user_id = uuid.UUID(get_jwt_identity())
-    urls = ShortURL.query.filter_by(user_id=user_id, is_active=True).all()
+    urls = ShortURL.query.filter_by(user_id=user_id).order_by(ShortURL.created_at.desc()).all()
     
-    return [url.to_dict() for url in urls], 200 
+    return jsonify([url.to_dict() for url in urls]), 200
 
-@urls_bp.route("/<slug>", methods=["GET"])
+@api_v1_bp.route("/urls/<slug>", methods=["GET"])
 @jwt_required()
 def get_url(slug):
-    """ Retrieves details of a unique URL associated with authenticated user.
-    Args:
-        slug (str): unique URL string identifier.
-    
-    Raises: 
-        werkzeug.exceptions.NotFound (HTTP 404): If the URL does not exist or does not belong to the user.
+    """Retrieves details of a specific shortened URL.
+
     Returns:
-        tuple: (dict containing ShortURL data, 200)  on success.
+        tuple: (dict containing url data, 200) on success.
+        tuple: (dict containing error message, 403/404) on failure.
     """
     user_id = uuid.UUID(get_jwt_identity())
-    url = ShortURL.query.filter_by(slug=slug, user_id=user_id).first_or_404()
+    url = ShortURL.query.filter_by(slug=slug).first()
+    
+    if not url:
+        return jsonify({"error": "not_found", "message": "URL not found."}), 404
+        
+    if url.user_id != user_id:
+        return jsonify({"error": "forbidden", "message": "This resource does not belong to the user."}), 403
+        
+    return jsonify(url.to_dict()), 200
 
-    return url.to_dict(), 200
-
-@urls_bp.route("/<slug>", methods=["PATCH"])
+@api_v1_bp.route("/urls/<slug>", methods=["PUT"])
 @jwt_required()
 def update_url(slug):
-    """ Updates an existing specific URL associated with the authenticated user.
-    Args:
-        slug (str): The unique string identifier for the URL.
-    Expected JSON Payload:
-        original_url (str, optional): The destination URL to be shortened.
-        title (str, optional): A descriptive title for the link.
-    Raises: 
-        werkzeug.exceptions.NotFound (HTTP 404): If the URL does not exist or does not belong to the user.
-    
+    """Updates the original_url or title of a specific shortened URL.
+
     Returns:
-        tuple: (dict containing ShortURL data, 200)  on success.    
+        tuple: (dict containing updated url data, 200) on success.
     """
     user_id = uuid.UUID(get_jwt_identity())
-    url = ShortURL.query.filter_by(slug=slug, user_id=user_id).first_or_404()
-    updated_data = request.get_json(silent=True) or {}
-    if "original_url" in updated_data:
-        updated_url = updated_data.get("original_url")
-        if not updated_url or not validate_url(updated_url):
-            return {"error": "validation_error", "message": "Invalid URL."}, 422
-        url.original_url = updated_url
-    if "title" in updated_data:
-        url.title = updated_data.get("title")
+    url = ShortURL.query.filter_by(slug=slug).first()
     
+    if not url:
+        return jsonify({"error": "not_found", "message": "URL not found."}), 404
+        
+    if url.user_id != user_id:
+        return jsonify({"error": "forbidden", "message": "This resource does not belong to the user."}), 403
+
+    data = request.get_json(silent=True) or {}
+    if "original_url" in data:
+        url.original_url = data["original_url"]
+    if "title" in data:
+        url.title = data["title"]
+        
     try:
         db.session.commit()
-        invalidate_cache(slug)
-        return url.to_dict(), 200
+        # Invalidação do cache para evitar que o worker de redirect use a URL antiga
+        redis_conn.delete(f"url:{slug}")
+        return jsonify(url.to_dict()), 200
     except SQLAlchemyError:
         db.session.rollback()
-        return {"error": "internal_server_error", "message": "Failed to update URL."}, 500
+        return jsonify({"error": "internal_server_error", "message": "Database error during update."}), 500
 
-
-@urls_bp.route("/<slug>", methods=["DELETE"])
+@api_v1_bp.route("/urls/<slug>", methods=["DELETE"])
 @jwt_required()
 def delete_url(slug):
-    """Marks a specific URL as inactive (soft delete) specific URL associated with the authenticated user.
-    Args:
-        slug (str): The unique string identifier for the URL.
-    Raises: 
-        werkzeug.exceptions.NotFound (HTTP 404): If the URL does not exist or does not belong to the user.
-    Returns:
-        tuple: (empty string, 204)  on success.
-        tuple: (dict containing error message, 409) if the URL is already inactive.  
+    """Deletes a specific shortened URL.
 
+    Returns:
+        tuple: (dict containing success message, 200) on success.
     """
     user_id = uuid.UUID(get_jwt_identity())
-    url = ShortURL.query.filter_by(slug=slug, user_id=user_id).first_or_404()
-
-    if not url.is_active:
-        return {"error": "already_inactive", "message": "Url already inactive."}, 409
-    url.is_active = False
+    url = ShortURL.query.filter_by(slug=slug).first()
+    
+    if not url:
+        return jsonify({"error": "not_found", "message": "URL not found."}), 404
+        
+    if url.user_id != user_id:
+        return jsonify({"error": "forbidden", "message": "This resource does not belong to the user."}), 403
+        
     try:
+        db.session.delete(url)
         db.session.commit()
-        invalidate_cache(slug)
-        return "", 204
+        # Invalidação do cache
+        redis_conn.delete(f"url:{slug}")
+        return jsonify({"message": "URL successfully deleted."}), 200
     except SQLAlchemyError:
         db.session.rollback()
-        return {"error": "internal_server_error", "message": "Failed to delete URL."}, 500
-
-
-    
-
-
-
-
-
+        return jsonify({"error": "internal_server_error", "message": "Database error during deletion."}), 500

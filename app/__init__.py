@@ -1,10 +1,8 @@
-from flask import Flask
+from flask import Flask, jsonify
 from app.config import config
 from app import extensions
 from app.extensions import db, limiter, migrate, jwt, init_redis
 from app.api.v1 import api_v1_bp
-from app.api.v1.urls import urls_bp
-from app.api.v1.auth import auth_bp
 from app.redirects import redirects_bp
 # from app.public.routes import public_bp
 from app.core.tracker import start_click_worker
@@ -42,13 +40,7 @@ def create_app(config_name="default"):
 
     # Register routes
     app.register_blueprint(api_v1_bp, url_prefix="/api/v1")
-    # app.register_blueprint(public_bp)
-    app.register_blueprint(urls_bp, url_prefix="/api/v1/urls")
-    app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
     app.register_blueprint(redirects_bp)
-    app.register_blueprint(analytics_bp, url_prefix="/api/v1/analytics")
-    
-    start_click_worker(app)
 
     # Import models in app context 
     with app.app_context():
@@ -65,5 +57,20 @@ def create_app(config_name="default"):
             "ShortURL": ShortURL,
             "Click": Click,
         }
+    @app.errorhandler(404)
+    def handle_not_found(e):
+        return jsonify({"error": "not_found", "message": str(e)}), 404
+    
+    @app.errorhandler(405)
+    def handle_not_allowed(e):
+        return jsonify({"error": "method_not_allowed", "message": str(e)}), 405
+    
+    @app.errorhandler(429)
+    def handle_too_many(e):
+        return jsonify({"error": "rate_limit_exceeded", "message": str(e)}), 429
 
+    @app.errorhandler(500)
+    def handle_internal_server(e):
+        db.session.rollback()
+        return jsonify({"error": "internal_server_error", "message": str(e)}), 500
     return app
