@@ -1,33 +1,32 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, Boolean, DateTime, Integer, Text
+
+from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from app.extensions import db
+
 
 class ShortURL(db.Model):
     """
     Represents a shortened URL entity in the database.
 
-    Manages original URL maping, access limits (time and click-based), amd relashionships 
-    with the URL owner and click analitics 
+    Manages original URL maping, access limits (time and click-based), amd relashionships
+    with the URL owner and click analitics
     """
 
     __tablename__ = "short_urls"
-    __table_args__ = (
-        db.Index("ix_short_urls_user_active", "user_id", "is_active"),
-    )
+    __table_args__ = (db.Index("ix_short_urls_user_active", "user_id", "is_active"),)
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    slug: Mapped[str] = mapped_column(
-        String(64), unique=True, index=True)
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    slug: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     original_url: Mapped[str] = mapped_column(Text)
     title: Mapped[str] = mapped_column(String(255), nullable=True)
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        db.ForeignKey("users.id", ondelete="CASCADE"),
-        index=True
-        )
+        UUID(as_uuid=True), db.ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     max_clicks: Mapped[int] = mapped_column(Integer, nullable=True)
@@ -35,15 +34,17 @@ class ShortURL(db.Model):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
-        )
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
-        )
+    )
     owner: Mapped["User"] = relationship(back_populates="urls")
-    clicks: Mapped[list["Click"]] = relationship(back_populates="url", cascade="all, delete-orphan")
-    
+    clicks: Mapped[list["Click"]] = relationship(
+        back_populates="url", cascade="all, delete-orphan"
+    )
+
     @property
     def is_expired(self) -> bool:
         """
@@ -68,7 +69,9 @@ class ShortURL(db.Model):
 
     @property
     def is_accessible(self) -> bool:
-        return self.is_active and not self.is_expired and not self.is_click_limit_reached
+        return (
+            self.is_active and not self.is_expired and not self.is_click_limit_reached
+        )
 
     def to_dict(self, base_url: str = "") -> dict:
         """
@@ -77,10 +80,10 @@ class ShortURL(db.Model):
         Args:
             base_url (str): The base application URL (e.g., request.host_url).
         Returns:
-            dict: The serialized URL data including absolute HATEOAS links. 
+            dict: The serialized URL data including absolute HATEOAS links.
         """
-        clean_base = base_url.rstrip('/')
-        
+        clean_base = base_url.rstrip("/")
+
         return {
             "id": str(self.id),
             "slug": self.slug,
@@ -96,10 +99,9 @@ class ShortURL(db.Model):
             "links": {
                 "self": f"{clean_base}/api/v1/urls/{self.slug}",
                 "analytics": f"{clean_base}/api/v1/urls/{self.slug}/analytics",
-                "qr": f"{clean_base}/api/v1/urls/{self.slug}/qr"
-            }
+                "qr": f"{clean_base}/api/v1/urls/{self.slug}/qr",
+            },
         }
 
     def __repr__(self) -> str:
         return f"<ShortURL {self.slug}>"
-        

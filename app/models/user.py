@@ -1,11 +1,12 @@
 import secrets
 import uuid
-from flask import url_for
 from datetime import datetime, timezone
-from sqlalchemy import String, Boolean, DateTime
+
+from flask import url_for
+from sqlalchemy import Boolean, DateTime, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.extensions import db
 
@@ -23,40 +24,40 @@ class User(db.Model):
         updated_at (datetime): Timestamp of the last account update.
         urls (list[ShortURL]): Dynamic relationship to the URLs owned by the user.
     """
-    __tablename__ = 'users'
+
+    __tablename__ = "users"
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-        )
+    )
     email: Mapped[str] = mapped_column(
-        String(255), unique=True, nullable=False, index=True)
+        String(255), unique=True, nullable=False, index=True
+    )
 
-    password_hash: Mapped[str] = mapped_column(
-        String(255), nullable=False
-        )
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     api_key: Mapped[str] = mapped_column(
         String(64),
         unique=True,
         index=True,
         default=lambda: secrets.token_urlsafe(32),
-        )
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
-        )
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
-        )
-    # Relationship — "ShortURL"  string because class in not yet defined 
+    )
+    # Relationship — "ShortURL"  string because class in not yet defined
     urls: Mapped[list["ShortURL"]] = relationship(
         "ShortURL",
         back_populates="owner",
         lazy="dynamic",
         cascade="all, delete-orphan",
-        )
-    #methods
+    )
+    # methods
 
     def set_password(self, password: str) -> None:
         """Hashes the provided password and stores it.
@@ -85,6 +86,7 @@ class User(db.Model):
         """
         self.api_key = secrets.token_urlsafe(32)
         return self.api_key
+
     def to_dict(self) -> dict:
         """Serializes the user object into a dictionary.
 
@@ -92,14 +94,15 @@ class User(db.Model):
             dict: The user's public profile data and hypermedia links.
         """
         return {
-        "id": str(self.id),
-        "email": self.email,
-        "created_at": self.created_at.isoformat(),
-        "links": {
-            "self": url_for("auth.me", _external=True),
-            "urls": url_for("urls.list_urls", _external=True),
+            "id": str(self.id),
+            "email": self.email,
+            "created_at": self.created_at.isoformat(),
+            "links": {
+                "self": url_for("auth.me", _external=True),
+                "urls": url_for("urls.list_urls", _external=True),
             },
         }
+
     def __repr__(self) -> str:
         """Returns a string representation of the User object."""
         return f"<User {self.email}>"

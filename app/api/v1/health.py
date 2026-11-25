@@ -1,6 +1,9 @@
-from flask import jsonify 
+from flask import jsonify
+
+from app import extensions
 from app.api.v1 import api_v1_bp
-from app.extensions import db, redis_conn
+from app.extensions import db
+
 
 @api_v1_bp.route("/health", methods=["GET"], strict_slashes=False)
 def health_check():
@@ -12,27 +15,21 @@ def health_check():
         tuple: (dict containing health status, 200) if all services are operational.
         tuple: (dict containing degraded status, 503) if any service is down.
     """
-    payload = {
-        "status": "ok", 
-        "services": {
-            "postgres": "ok", 
-            "redis": "ok"
-        }
-    }
-    
+    payload = {"status": "ok", "services": {"postgres": "ok", "redis": "ok"}}
+
     try:
-        db.session.execute(db.text("SELECT 1")) 
-    except Exception: 
+        db.session.execute(db.text("SELECT 1"))
+    except Exception:
         payload["status"] = "degraded"
-        payload["services"]["postgres"] = "error" 
-        
+        payload["services"]["postgres"] = "error"
+
     try:
-        redis_conn.ping()
+        extensions.redis_conn.ping()
     except Exception:
         payload["status"] = "degraded"
         payload["services"]["redis"] = "error"
 
     if payload["status"] == "degraded":
         return jsonify(payload), 503
-        
+
     return jsonify(payload), 200

@@ -1,11 +1,21 @@
 import uuid
-from flask import request, jsonify
-from sqlalchemy.exc import SQLAlchemyError
-from app.extensions import db, limiter, redis_conn
-from app.models import User
-from app.api.v1 import api_v1_bp
-from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt, jwt_required, get_jwt_identity
 from datetime import datetime, timezone
+
+from flask import jsonify, request
+from flask_jwt_extended import (
+    create_access_token,
+    create_refresh_token,
+    get_jwt,
+    get_jwt_identity,
+    jwt_required,
+)
+from sqlalchemy.exc import SQLAlchemyError
+
+from app import extensions
+from app.api.v1 import api_v1_bp
+from app.extensions import db, limiter
+from app.models import User
+
 
 @api_v1_bp.route("/auth/register", methods=["POST"])
 @limiter.limit("10 per hour")
@@ -25,16 +35,28 @@ def register():
     email = data.get("email", "").strip().lower()
     password = data.get("password", "")
     if not email or not password or len(password) < 8 or len(password) > 128:
-        return jsonify({"error": "validation_error", "message": "Email and password are required."}), 422
-        
+        return (
+            jsonify(
+                {
+                    "error": "validation_error",
+                    "message": "Email and password are required.",
+                }
+            ),
+            422,
+        )
+
     if User.query.filter_by(email=email).first():
-        return jsonify({"error": "conflict", "message": "email already registered"}), 409
-    
+        return (
+            jsonify({"error": "conflict", "message": "email already registered"}),
+            409,
+        )
+
     user = User(email=email)
     user.set_password(password)
     db.session.add(user)
     db.session.commit()
     return jsonify({"message": "user created", "user": user.to_dict()}), 201
+
 
 @api_v1_bp.route("/auth/login", methods=["POST"])
 @limiter.limit("20 per hour")
@@ -52,18 +74,27 @@ def login():
     data = request.get_json(silent=True) or {}
     email = data.get("email", "").strip().lower()
     password = data.get("password", "")
-    user = User.query.filter_by(email=email, is_active=True).first() 
+    user = User.query.filter_by(email=email, is_active=True).first()
     if not user or not user.check_password(password):
-        return jsonify({"error": "unauthorized", "message": "Invalid email or password"}), 401
+        return (
+            jsonify({"error": "unauthorized", "message": "Invalid email or password"}),
+            401,
+        )
 
     access_token = create_access_token(identity=str(user.id))
     refresh_token = create_refresh_token(identity=str(user.id))
-    return jsonify({
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "Bearer",
-        "user": user.to_dict()
-    }), 200
+    return (
+        jsonify(
+            {
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "token_type": "Bearer",
+                "user": user.to_dict(),
+            }
+        ),
+        200,
+    )
+
 
 @api_v1_bp.route("/auth/refresh", methods=["POST"])
 @jwt_required(refresh=True)
@@ -75,7 +106,8 @@ def refresh():
     """
     identity = get_jwt_identity()
     access_token = create_access_token(identity=identity)
-    return jsonify({"access_token": access_token}), 200 
+    return jsonify({"access_token": access_token}), 200
+
 
 @api_v1_bp.route("/auth/logout", methods=["DELETE"])
 @jwt_required()
@@ -90,8 +122,9 @@ def logout():
     exp = token_data["exp"]
     now = int(datetime.now(timezone.utc).timestamp())
     ttl = exp - now
-    redis_conn.setex(f"bl:{jti}", max(ttl,1), "1")
+    extensions.redis_conn.setex(f"bl:{jti}", max(ttl, 1), "1")
     return jsonify({"message": "successfully logged out"}), 200
+
 
 @api_v1_bp.route("/auth/me", methods=["GET"])
 @jwt_required()
@@ -119,11 +152,24 @@ def api_key():
     user.rotate_api_key()
     try:
         db.session.commit()
-        return jsonify({
-            "api_key": user.api_key,
-            "message": "Store it safely- shown only once."
-        }), 200
+        return (
+            jsonify(
+                {
+                    "api_key": user.api_key,
+                    "message": "Store it safely- shown only once.",
+                }
+            ),
+            200,
+        )
 
     except SQLAlchemyError:
         db.session.rollback()
-        return jsonify({"error": "internal_server_error", "message": "Failed to rotate api key."}), 500
+        return (
+            jsonify(
+                {
+                    "error": "internal_server_error",
+                    "message": "Failed to rotate api key.",
+                }
+            ),
+            500,
+        )

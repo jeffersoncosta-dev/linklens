@@ -1,11 +1,14 @@
 from flask import Flask, jsonify
-from app.config import config
+
 from app import extensions
-from app.extensions import db, limiter, migrate, jwt, init_redis
 from app.api.v1 import api_v1_bp
-from app.redirects import redirects_bp
+from app.config import config
+
 # from app.public.routes import public_bp
 from app.core.tracker import start_click_worker
+from app.extensions import db, init_redis, jwt, limiter, migrate
+from app.redirects import redirects_bp
+
 
 @jwt.token_in_blocklist_loader
 def check_if_token_revoked(jwt_header, jwt_payload):
@@ -42,29 +45,31 @@ def create_app(config_name="default"):
     app.register_blueprint(api_v1_bp, url_prefix="/api/v1")
     app.register_blueprint(redirects_bp)
 
-    # Import models in app context 
+    # Import models in app context
     with app.app_context():
-        from app.models import User, ShortURL, Click
+        from app.models import Click, ShortURL, User
 
     # Shell Context Processor
     @app.shell_context_processor
     def make_shell_context():
         """Registers variables to be automatically imported in the Flask shell."""
-        from app.models import User, ShortURL, Click
+        from app.models import Click, ShortURL, User
+
         return {
             "db": db,
             "User": User,
             "ShortURL": ShortURL,
             "Click": Click,
         }
+
     @app.errorhandler(404)
     def handle_not_found(e):
         return jsonify({"error": "not_found", "message": str(e)}), 404
-    
+
     @app.errorhandler(405)
     def handle_not_allowed(e):
         return jsonify({"error": "method_not_allowed", "message": str(e)}), 405
-    
+
     @app.errorhandler(429)
     def handle_too_many(e):
         return jsonify({"error": "rate_limit_exceeded", "message": str(e)}), 429
@@ -73,4 +78,8 @@ def create_app(config_name="default"):
     def handle_internal_server(e):
         db.session.rollback()
         return jsonify({"error": "internal_server_error", "message": str(e)}), 500
+
+    if not app.config.get("TESTING"):
+        start_click_worker(app)
+
     return app

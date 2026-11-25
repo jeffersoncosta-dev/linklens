@@ -1,17 +1,21 @@
-import uuid
-import string
 import random
-from flask import request, jsonify
-from flask_jwt_extended import jwt_required, get_jwt_identity
+import string
+import uuid
+
+from flask import jsonify, request
+from flask_jwt_extended import get_jwt_identity, jwt_required
 from sqlalchemy.exc import SQLAlchemyError
-from app.extensions import db, redis_conn, limiter
-from app.models import ShortURL
+
 from app.api.v1 import api_v1_bp
+from app.extensions import db, limiter, redis_conn
+from app.models import ShortURL
+
 
 def generate_custom_slug(length=6):
     """Generates a random alphanumeric slug as fallback."""
     chars = string.ascii_letters + string.digits
-    return ''.join(random.choices(chars, k=length))
+    return "".join(random.choices(chars, k=length))
+
 
 @api_v1_bp.route("/urls", methods=["POST"])
 @jwt_required()
@@ -30,10 +34,15 @@ def create_url():
     """
     user_id = uuid.UUID(get_jwt_identity())
     data = request.get_json(silent=True) or {}
-    
+
     original_url = data.get("original_url")
     if not original_url:
-        return jsonify({"error": "validation_error", "message": "original_url is required."}), 400
+        return (
+            jsonify(
+                {"error": "validation_error", "message": "original_url is required."}
+            ),
+            400,
+        )
 
     custom_slug = data.get("slug")
     slug = custom_slug.strip() if custom_slug else generate_custom_slug()
@@ -45,16 +54,25 @@ def create_url():
         original_url=original_url,
         slug=slug,
         title=data.get("title", ""),
-        user_id=user_id
+        user_id=user_id,
     )
-    
+
     try:
         db.session.add(new_url)
         db.session.commit()
         return jsonify(new_url.to_dict()), 201
-    except SQLAlchemyError as e:
+    except SQLAlchemyError:
         db.session.rollback()
-        return jsonify({"error": "internal_server_error", "message": "Database error during creation."}), 500
+        return (
+            jsonify(
+                {
+                    "error": "internal_server_error",
+                    "message": "Database error during creation.",
+                }
+            ),
+            500,
+        )
+
 
 @api_v1_bp.route("/urls", methods=["GET"])
 @jwt_required()
@@ -65,9 +83,14 @@ def list_urls():
         tuple: (list of dicts containing urls data, 200) on success.
     """
     user_id = uuid.UUID(get_jwt_identity())
-    urls = ShortURL.query.filter_by(user_id=user_id).order_by(ShortURL.created_at.desc()).all()
-    
+    urls = (
+        ShortURL.query.filter_by(user_id=user_id)
+        .order_by(ShortURL.created_at.desc())
+        .all()
+    )
+
     return jsonify([url.to_dict() for url in urls]), 200
+
 
 @api_v1_bp.route("/urls/<slug>", methods=["GET"])
 @jwt_required()
@@ -80,14 +103,23 @@ def get_url(slug):
     """
     user_id = uuid.UUID(get_jwt_identity())
     url = ShortURL.query.filter_by(slug=slug).first()
-    
+
     if not url:
         return jsonify({"error": "not_found", "message": "URL not found."}), 404
-        
+
     if url.user_id != user_id:
-        return jsonify({"error": "forbidden", "message": "This resource does not belong to the user."}), 403
-        
+        return (
+            jsonify(
+                {
+                    "error": "forbidden",
+                    "message": "This resource does not belong to the user.",
+                }
+            ),
+            403,
+        )
+
     return jsonify(url.to_dict()), 200
+
 
 @api_v1_bp.route("/urls/<slug>", methods=["PUT"])
 @jwt_required()
@@ -99,19 +131,27 @@ def update_url(slug):
     """
     user_id = uuid.UUID(get_jwt_identity())
     url = ShortURL.query.filter_by(slug=slug).first()
-    
+
     if not url:
         return jsonify({"error": "not_found", "message": "URL not found."}), 404
-        
+
     if url.user_id != user_id:
-        return jsonify({"error": "forbidden", "message": "This resource does not belong to the user."}), 403
+        return (
+            jsonify(
+                {
+                    "error": "forbidden",
+                    "message": "This resource does not belong to the user.",
+                }
+            ),
+            403,
+        )
 
     data = request.get_json(silent=True) or {}
     if "original_url" in data:
         url.original_url = data["original_url"]
     if "title" in data:
         url.title = data["title"]
-        
+
     try:
         db.session.commit()
         # Invalidação do cache para evitar que o worker de redirect use a URL antiga
@@ -119,7 +159,16 @@ def update_url(slug):
         return jsonify(url.to_dict()), 200
     except SQLAlchemyError:
         db.session.rollback()
-        return jsonify({"error": "internal_server_error", "message": "Database error during update."}), 500
+        return (
+            jsonify(
+                {
+                    "error": "internal_server_error",
+                    "message": "Database error during update.",
+                }
+            ),
+            500,
+        )
+
 
 @api_v1_bp.route("/urls/<slug>", methods=["DELETE"])
 @jwt_required()
@@ -131,13 +180,21 @@ def delete_url(slug):
     """
     user_id = uuid.UUID(get_jwt_identity())
     url = ShortURL.query.filter_by(slug=slug).first()
-    
+
     if not url:
         return jsonify({"error": "not_found", "message": "URL not found."}), 404
-        
+
     if url.user_id != user_id:
-        return jsonify({"error": "forbidden", "message": "This resource does not belong to the user."}), 403
-        
+        return (
+            jsonify(
+                {
+                    "error": "forbidden",
+                    "message": "This resource does not belong to the user.",
+                }
+            ),
+            403,
+        )
+
     try:
         db.session.delete(url)
         db.session.commit()
@@ -146,4 +203,12 @@ def delete_url(slug):
         return jsonify({"message": "URL successfully deleted."}), 200
     except SQLAlchemyError:
         db.session.rollback()
-        return jsonify({"error": "internal_server_error", "message": "Database error during deletion."}), 500
+        return (
+            jsonify(
+                {
+                    "error": "internal_server_error",
+                    "message": "Database error during deletion.",
+                }
+            ),
+            500,
+        )

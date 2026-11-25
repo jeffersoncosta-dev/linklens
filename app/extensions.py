@@ -1,9 +1,9 @@
-from flask_sqlalchemy import SQLAlchemy
-from flask_migrate import Migrate
+import redis
 from flask_jwt_extended import JWTManager
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-import redis
+from flask_migrate import Migrate
+from flask_sqlalchemy import SQLAlchemy
 
 redis_conn = None
 
@@ -17,4 +17,3 @@ def init_redis(app):
     global redis_conn
     redis_conn = redis.from_url(app.config["REDIS_URL"], decode_responses=True)
     return redis_conn
-

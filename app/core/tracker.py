@@ -1,33 +1,34 @@
 import hashlib
 import ipaddress
-import threading
-import logging
-import requests
 import json
+import logging
+import threading
 import time
-from urllib.parse import urlparse
-from user_agents import parse as ua_parse
 from datetime import datetime, timezone
-from flask import Flask, request, jsonify
-from app import extensions
-from app.models import ShortURL, Click
-from app.extensions import db
+from urllib.parse import urlparse
+
+import requests
 from sqlalchemy.exc import SQLAlchemyError
+from user_agents import parse as ua_parse
+
+from app import extensions
+from app.extensions import db
+from app.models import Click, ShortURL
 
 logger = logging.getLogger(__name__)
 
 CLICK_QUEUE = "queue:clicks"
 
+
 def process_click_queue(app):
     """Continuously consumes the Redis queue and triggers click persistence.
-    
+
     Runs in an infinite loop waiting for events in the CLICK_QUEUE via blpop.
     Requires the application context to instantiate database communication.
 
     Args:
         app (Flask): Main application instance.
     """
-    
 
     while True:
         try:
@@ -42,6 +43,7 @@ def process_click_queue(app):
             logger.error(f"Error persisting click:{exc}")
             time.sleep(5)
 
+
 def start_click_worker(app):
     """Starts the click consumer process in a daemon thread.
 
@@ -51,6 +53,7 @@ def start_click_worker(app):
 
     t = threading.Thread(target=process_click_queue, args=(app,), daemon=True)
     t.start()
+
 
 def _hash_ip(ip):
     """Anonymizes the IP address using the SHA-256 algorithm for privacy compliance.
@@ -66,10 +69,11 @@ def _hash_ip(ip):
         return hashlib.sha256(ip.encode()).hexdigest()
     return ""
 
+
 def _check_is_unique(url_id, ip_hash):
     """Checks if this is the first access from this IP to the URL in the last 30 days.
 
-    Uses a Redis set with an expiration time to guarantee the unique visitors 
+    Uses a Redis set with an expiration time to guarantee the unique visitors
     metric without burdening the relational database.
 
     Args:
@@ -81,8 +85,9 @@ def _check_is_unique(url_id, ip_hash):
     """
 
     key = f"unique:{url_id}:{ip_hash}"
-    is_new = extensions.redis_conn.set(key, 1, nx=True, ex=86400*30)    
+    is_new = extensions.redis_conn.set(key, 1, nx=True, ex=86400 * 30)
     return is_new
+
 
 def enqueue_click(url_id, ip, user_agent, referer):
     """Assembles the event payload and enqueues it in Redis in a non-blocking manner.
@@ -100,14 +105,15 @@ def enqueue_click(url_id, ip, user_agent, referer):
         "ip": ip,
         "user_agent": user_agent,
         "referer": referer,
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     extensions.redis_conn.rpush(CLICK_QUEUE, json.dumps(event))
+
 
 def _persist_click(event):
     """Enriches event data and persists the click in PostgreSQL via a transaction.
 
-    Resolves geolocation and device type. Database failures trigger a silent 
+    Resolves geolocation and device type. Database failures trigger a silent
     rollback to prevent the consumer from crashing.
 
     Args:
@@ -123,8 +129,8 @@ def _persist_click(event):
     ip_hash = event["ip_hash"]
     referer = _clean_referer(event.get("referer"))
     click = Click(
-        url_id=url.id, 
-        ip_hash=ip_hash, 
+        url_id=url.id,
+        ip_hash=ip_hash,
         is_unique=_check_is_unique(url.id, ip_hash),
         referer=referer,
         user_agent_raw=event.get("user_agent"),
@@ -140,13 +146,15 @@ def _persist_click(event):
         url.click_count += 1
         db.session.commit()
     except SQLAlchemyError as e:
-        logger.error(f"Database error while persisting click event for URL{event.get('url_id')}: {e}")
+        logger.error(
+            f"Database error while persisting click event for URL{event.get('url_id')}: {e}"
+        )
         db.session.rollback()
 
 
 def _get_device_type(ua) -> str:
     """Classifies the parsed user agent into a device category.
-    
+
     Bot check has priority because bot user-agent strings can
     sometimes also match mobile patterns.
 
@@ -165,10 +173,11 @@ def _get_device_type(ua) -> str:
         return "tablet"
     return "desktop"
 
+
 def _fetch_geo(ip):
     """Queries the ip-api.com API to extract geolocation.
 
-    Discards requests for private/localhost network IPs and implements 
+    Discards requests for private/localhost network IPs and implements
     a 2-second security timeout.
 
     Args:
@@ -185,10 +194,17 @@ def _fetch_geo(ip):
     except ValueError:
         return {}
 
-    if address.is_private or address.is_reserved or address.is_loopback or address.is_link_local: 
+    if (
+        address.is_private
+        or address.is_reserved
+        or address.is_loopback
+        or address.is_link_local
+    ):
         return {}
     try:
-       response = requests.get(f"http://ip-api.com/json/{ip}?fields=status,country,city,region", timeout=2)
+        response = requests.get(
+            f"http://ip-api.com/json/{ip}?fields=status,country,city,region", timeout=2
+        )
     except requests.exceptions.RequestException:
         return {}
 
@@ -196,6 +212,7 @@ def _fetch_geo(ip):
     if data.get("status") != "success":
         return {}
     return data
+
 
 def _clean_referer(referer):
     """Isolates only the main domain (netloc) from the origin URL.
