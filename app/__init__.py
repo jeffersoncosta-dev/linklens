@@ -24,7 +24,10 @@ def check_if_token_revoked(jwt_header, jwt_payload):
         bool: True if the token is in the blocklist (revoked), False otherwise.
     """
     jti = jwt_payload["jti"]
-    return extensions.redis_conn.get(f"bl:{jti}") is not None
+    sid = jwt_payload.get("sid")
+    if extensions.redis_conn.get(f"bl:{jti}") is not None:
+        return True
+    return bool(sid and extensions.redis_conn.get(f"bl:sess:{sid}") is not None)
 
 
 def create_app(config_name="default"):

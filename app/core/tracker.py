@@ -1,4 +1,5 @@
 import hashlib
+import hmac
 import ipaddress
 import json
 import logging
@@ -10,6 +11,7 @@ from urllib.parse import urlparse
 import requests
 from sqlalchemy.exc import SQLAlchemyError
 from user_agents import parse as ua_parse
+from flask import current_app
 
 from app import extensions
 from app.extensions import db
@@ -56,7 +58,7 @@ def start_click_worker(app):
 
 
 def _hash_ip(ip):
-    """Anonymizes the IP address using the SHA-256 algorithm for privacy compliance.
+    """Anonymizes the IP address using keyed HMAC-SHA-256.
 
     Args:
         ip (str): Visitor's IP address.
@@ -66,7 +68,14 @@ def _hash_ip(ip):
     """
 
     if ip:
-        return hashlib.sha256(ip.encode()).hexdigest()
+        secret = current_app.config.get("IP_HASH_SECRET")
+        if not secret:
+            raise RuntimeError("IP_HASH_SECRET is not configured")
+        return hmac.new(
+            str(secret).encode(),
+            ip.encode(),
+            hashlib.sha256,
+        ).hexdigest()
     return ""
 
 

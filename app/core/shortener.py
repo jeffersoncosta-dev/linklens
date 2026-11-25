@@ -14,7 +14,7 @@ RESERVED_SLUGS = {"api", "health", "metrics", "admin", "static", "favicon.ico"}
 
 def generate_slug(length=7):
 
-    for attempt in range(10):
+    for _ in range(10):
 
         slug = "".join(secrets.choice(ALPHABET) for _ in range(length))
 

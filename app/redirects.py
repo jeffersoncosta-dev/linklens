@@ -6,54 +6,71 @@ from app.core.shortener import cache_redirect, get_cached_redirect
 from app.core.tracker import enqueue_click
 from app.models import ShortURL
 
+logger = logging.getLogger(__name__)
+
 redirects_bp = Blueprint("redirects", __name__)
 
 
 @redirects_bp.route("/<slug>", methods=["GET"])
 def redirect_url(slug):
-    cached_url = get_cached_redirect(slug)
-    if cached_url:
-        _track(slug)
-        return redirect(cached_url, code=302)
     url = ShortURL.query.filter_by(slug=slug).first()
-    if not url:
+
+    if url is None:
         return (
-            jsonify({"error": "not_found", "message": f"Slug '{slug}' not found."}),
+            jsonify(
+                {
+                    "error": "not_found",
+                    "message": f"Slug '{slug}' not found.",
+                }
+            ),
             404,
         )
+
     if not url.is_accessible:
         if url.is_expired:
-            return jsonify({"error": "link_unavailable", "reason": "expired"}), 410
+            reason = "expired"
         elif url.is_click_limit_reached:
-            return (
-                jsonify(
-                    {"error": "link_unavailable", "reason": "reached clicks limit"}
-                ),
-                410,
-            )
+            reason = "reached clicks limit"
         else:
-            return jsonify({"error": "link_unavailable", "reason": "inactive"}), 410
-    cache_redirect(slug, url.original_url)
-    _track(slug, url.id)
-    return redirect(url.original_url, code=302)
+            reason = "inactive"
 
+        return (
+            jsonify(
+                {
+                    "error": "link_unavailable",
+                    "reason": reason,
+                }
+            ),
+            410,
+        )
 
-def _track(slug, url_id=None):
+    # O banco é a fonte de verdade; cache antigo não define o destino.
+    target_url = url.original_url
+
     try:
-        if not url_id:
-            url = ShortURL.query.filter_by(slug=slug).first()
-            url_id = url.id
+        cached_url = get_cached_redirect(slug)
+
+        if cached_url != target_url:
+            cache_redirect(slug, target_url)
+    except Exception:
+        logger.exception("Redirect cache failed for slug=%s", slug)
+
+    _track(url.id)
+
+    return redirect(target_url, code=302)
+
+
+def _track(url_id):
+    """Enqueue analytics without blocking the redirect on failure."""
+    try:
         enqueue_click(
             url_id=url_id,
             ip=request.remote_addr,
             user_agent=request.user_agent.string,
             referer=request.referrer,
         )
-
-    except Exception as e:
-        logging.error(
-            "Failed to enqueue click tracking for url_id=%s: %s",
+    except Exception:
+        logger.exception(
+            "Failed to enqueue click tracking for url_id=%s",
             url_id,
-            e,
-            exc_info=True,
         )

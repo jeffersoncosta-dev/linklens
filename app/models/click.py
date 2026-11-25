@@ -1,12 +1,14 @@
 import uuid
 from datetime import datetime, timezone
-
+from typing import TYPE_CHECKING
 from sqlalchemy import Boolean, DateTime, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.extensions import db
 
+if TYPE_CHECKING:
+    from app.models.url import ShortURL
 
 class Click(db.Model):
     """
@@ -31,7 +33,7 @@ class Click(db.Model):
 
     ip_hash: Mapped[str] = mapped_column(String(64), index=True)
     is_unique: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    # Analytcs fields are nullable because clients or privacy tools might not provide headers like referer or user_agent
+    # Analytics fields are nullable because clients or privacy tools might not provide headers like referer or user_agent
     referer: Mapped[str] = mapped_column(String(500), nullable=True)
     user_agent_raw: Mapped[str] = mapped_column(String(500), nullable=True)
     browser: Mapped[str] = mapped_column(String(50), nullable=True)

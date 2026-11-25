@@ -1,19 +1,23 @@
 import uuid
 from datetime import datetime, timezone
-
+from typing import TYPE_CHECKING
 from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.extensions import db
 
+if TYPE_CHECKING:
+    from app.models.click import Click
+    from app.models.user import User
+
 
 class ShortURL(db.Model):
     """
     Represents a shortened URL entity in the database.
 
-    Manages original URL maping, access limits (time and click-based), amd relashionships
-    with the URL owner and click analitics
+    Manages original URL mapping, access limits (time and click-based), and relationships
+    with the URL owner and click analytics
     """
 
     __tablename__ = "short_urls"
@@ -50,7 +54,7 @@ class ShortURL(db.Model):
         """
         Dynamically checks if the URL passed the expiration date.
 
-        Returns False if no expiration date is set (if URL has inifinite lifespan)
+        Returns False if no expiration date is set (if URL has infinite lifespan)
         """
         if self.expires_at is None:
             return False

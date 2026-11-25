@@ -1,7 +1,7 @@
 import secrets
 import uuid
 from datetime import datetime, timezone
-
+from typing import TYPE_CHECKING
 from flask import url_for
 from sqlalchemy import Boolean, DateTime, String
 from sqlalchemy.dialects.postgresql import UUID
@@ -10,6 +10,8 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.extensions import db
 
+if TYPE_CHECKING:
+    from app.models.url import ShortURL
 
 class User(db.Model):
     """Represents a registered user in the application.
@@ -50,7 +52,7 @@ class User(db.Model):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
     )
-    # Relationship — "ShortURL"  string because class in not yet defined
+    # Relationship — "ShortURL"  string because class is not yet defined
     urls: Mapped[list["ShortURL"]] = relationship(
         "ShortURL",
         back_populates="owner",

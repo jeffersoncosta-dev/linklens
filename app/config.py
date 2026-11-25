@@ -11,6 +11,7 @@ class Config:
 
     SECRET_KEY = os.environ.get("SECRET_KEY")
     JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", SECRET_KEY)
+    IP_HASH_SECRET = os.environ.get("IP_HASH_SECRET", JWT_SECRET_KEY)
 
     SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
@@ -40,6 +41,7 @@ class TestingConfig(Config):
     TESTING = True
     SECRET_KEY = "test-secret-key"
     JWT_SECRET_KEY = "test-jwt-secret-key"
+    IP_HASH_SECRET = "test-ip-hash-secret-key"
 
     SQLALCHEMY_DATABASE_URI = os.environ.get(
         "TEST_DATABASE_URL",

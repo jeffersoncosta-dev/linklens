@@ -1,5 +1,3 @@
-import random
-import string
 import uuid
 
 from flask import jsonify, request
@@ -7,14 +5,9 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.v1 import api_v1_bp
+from app.core.shortener import generate_slug, validate_custom_slug, validate_url
 from app.extensions import db, limiter, redis_conn
 from app.models import ShortURL
-
-
-def generate_custom_slug(length=6):
-    """Generates a random alphanumeric slug as fallback."""
-    chars = string.ascii_letters + string.digits
-    return "".join(random.choices(chars, k=length))
 
 
 @api_v1_bp.route("/urls", methods=["POST"])
@@ -43,9 +36,30 @@ def create_url():
             ),
             400,
         )
+    if not isinstance(original_url, str) or not validate_url(original_url):
+        return (
+            jsonify(
+                {"error": "validation_error", "message": "original_url is invalid."}
+            ),
+            422,
+        )
 
     custom_slug = data.get("slug")
-    slug = custom_slug.strip() if custom_slug else generate_custom_slug()
+    if custom_slug:
+        if not isinstance(custom_slug, str):
+            return (
+                jsonify(
+                    {"error": "validation_error", "message": "slug must be a string."}
+                ),
+                422,
+            )
+        custom_slug = custom_slug.strip()
+        valid, message = validate_custom_slug(custom_slug)
+        if not valid:
+            return jsonify({"error": "validation_error", "message": message}), 422
+        slug = custom_slug
+    else:
+        slug = generate_slug()
 
     if ShortURL.query.filter_by(slug=slug).first():
         return jsonify({"error": "conflict", "message": "Slug already in use."}), 409
@@ -148,7 +162,15 @@ def update_url(slug):
 
     data = request.get_json(silent=True) or {}
     if "original_url" in data:
-        url.original_url = data["original_url"]
+        original_url = data["original_url"]
+        if not isinstance(original_url, str) or not validate_url(original_url):
+            return (
+                jsonify(
+                    {"error": "validation_error", "message": "original_url is invalid."}
+                ),
+                422,
+            )
+        url.original_url = original_url
     if "title" in data:
         url.title = data["title"]
 
